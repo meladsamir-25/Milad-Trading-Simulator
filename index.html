@@ -567,16 +567,18 @@
             }
         }
         
-        function simulateTrading(initialCapital, winRate, avgWin, avgLoss, numTrades, commission, volatility) {
+function simulateTrading(initialCapital, winRate, avgWin, avgLoss, numTrades, commission, volatility) {
             const results = {
                 equityHistory: [initialCapital],
                 drawdownHistory: [0],
-                trades: []
+                trades: [],
+                pctReturns: [] // 🚀 إضافة مصفوفة العوائد المئوية لحساب شارب
             };
             
             let equity = initialCapital;
             let maxEquity = initialCapital;
-            let maxDrawdown = 0;
+            let maxDrawdown = 0; // النسبة المئوية
+            let maxDrawdownDollar = 0; // 🚀 أقصى تراجع بالدولار لحساب الاسترداد
             let winCount = 0, lossCount = 0;
             
             for (let i = 1; i <= numTrades; i++) {
@@ -591,11 +593,21 @@
                     lossCount++;
                 }
                 
+                // 🚀 حساب العائد المئوي لهذه الصفقة قبل تحديث الرصيد
+                const pctReturn = (profit / equity) * 100;
+                results.pctReturns.push(pctReturn);
+
                 equity += profit;
                 if (equity > maxEquity) {
                     maxEquity = equity;
                 }
                 
+                // حساب التراجع
+                const currentDrawdownDollar = maxEquity - equity;
+                if (currentDrawdownDollar > maxDrawdownDollar) {
+                    maxDrawdownDollar = currentDrawdownDollar;
+                }
+
                 const drawdown = ((maxEquity - equity) / maxEquity) * 100;
                 if (drawdown > maxDrawdown) {
                     maxDrawdown = drawdown;
@@ -609,17 +621,20 @@
             const totalProfit = equity - initialCapital;
             const totalReturn = (totalProfit / initialCapital) * 100;
             
-            const allProfits = results.trades.map(t => t.profit);
-            const avgReturn = allProfits.reduce((a, b) => a + b, 0) / allProfits.length;
-            const variance = allProfits.reduce((a, b) => a + Math.pow(b - avgReturn, 2), 0) / allProfits.length;
+            // 🚀 التصحيح 1: حساب Sharpe Ratio بناءً على العوائد المئوية
+            const avgPctReturn = results.pctReturns.reduce((a, b) => a + b, 0) / numTrades;
+            const variance = results.pctReturns.reduce((a, b) => a + Math.pow(b - avgPctReturn, 2), 0) / numTrades;
             const stdDev = Math.sqrt(variance);
-            const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
+            // نفترض 252 يوم تداول لحساب شارب السنوي
+            const sharpeRatio = stdDev > 0 ? (avgPctReturn / stdDev) * Math.sqrt(252) : 0;
             
+            const allProfits = results.trades.map(t => t.profit);
             const totalWins = allProfits.filter(p => p > 0).reduce((a, b) => a + b, 0);
             const totalLosses = Math.abs(allProfits.filter(p => p < 0).reduce((a, b) => a + b, 0));
             const profitFactor = totalLosses > 0 ? totalWins / totalLosses : totalWins;
             
-            const recoveryFactor = maxDrawdown > 0 ? totalProfit / (maxDrawdown / 100) : 0;
+            // 🚀 التصحيح 2: حساب Recovery Factor بشكل صحيح (دولار / دولار)
+            const recoveryFactor = maxDrawdownDollar > 0 ? (totalProfit / maxDrawdownDollar) : (totalProfit > 0 ? 99.9 : 0);
             
             let maxConsecutiveWins = 0, maxConsecutiveLosses = 0;
             let currentWins = 0, currentLosses = 0;
@@ -628,15 +643,11 @@
                 if (trade.isWin) {
                     currentWins++;
                     currentLosses = 0;
-                    if (currentWins > maxConsecutiveWins) {
-                        maxConsecutiveWins = currentWins;
-                    }
+                    if (currentWins > maxConsecutiveWins) maxConsecutiveWins = currentWins;
                 } else {
                     currentLosses++;
                     currentWins = 0;
-                    if (currentLosses > maxConsecutiveLosses) {
-                        maxConsecutiveLosses = currentLosses;
-                    }
+                    if (currentLosses > maxConsecutiveLosses) maxConsecutiveLosses = currentLosses;
                 }
             });
             
